@@ -42,7 +42,9 @@ def is_path_matched_by_any_glob(path: str, patterns: List[str]) -> bool:
     """Return True if path matches any of the glob patterns (POSIX-style)."""
     p = to_posix(path)
     for pattern in patterns:
-        if fnmatch.fnmatch(p, pattern):
+        # Use POSIX-style patterns for consistency (e.g., */dist/*)
+        pat = pattern.replace('\\', '/')
+        if fnmatch.fnmatch(p, pat):
             return True
     return False
 
@@ -80,19 +82,27 @@ if __name__ == '__main__':
     for index, file in enumerate(all_files, 1):
         print(f"{index}. {file}")
 
-    selected_input = input("Enter the file numbers or file paths (separated by spaces). "
-                           "To exclude by glob, prefix with '-' (e.g., '1-100 -*/dist/*'): ")
+    selected_input = input(
+        "Enter numbers/ranges/paths separated by spaces. "
+        "Use -<glob> to exclude in-place (e.g., '1-100 -*/dist/* 34'): "
+    )
     norm_to_original = {normalize_path(f): f for f in all_files}
     selected_files = []
     added = set()
     input_parts = selected_input.split()
-    exclude_globs = []
 
     for part in input_parts:
-        # Exclude glob patterns prefixed with '-'
+        # Exclude by glob pattern encountered at this point in the sequence.
         if part.startswith('-') and len(part) > 1:
-            exclude_globs.append(part[1:])
+            pattern = part[1:]
+            # Remove matching files from the current selection (order-aware).
+            # Iterate over a copy to allow removal during iteration.
+            for f in list(selected_files):
+                if is_path_matched_by_any_glob(f, [pattern]):
+                    selected_files.remove(f)
+                    added.discard(f)
             continue
+        # Range like 5-12
         if '-' in part:
             try:
                 start, end = map(int, part.split('-'))
@@ -119,10 +129,6 @@ if __name__ == '__main__':
             if file not in added:
                 selected_files.append(file)
                 added.add(file)
-
-    # Apply exclude glob patterns to selected files
-    if exclude_globs:
-        selected_files = [f for f in selected_files if not is_path_matched_by_any_glob(f, exclude_globs)]
 
     list_files(selected_files)
     print("Files have been listed in 'out.txt'.")
