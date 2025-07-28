@@ -1,6 +1,7 @@
 import sys
 import os
 import fnmatch
+from typing import List
 
 root_path = sys.argv[1] if len(sys.argv) > 1 else '.'
 
@@ -32,6 +33,18 @@ excludes_files = {
 
 def normalize_path(path):
     return os.path.normpath(path)
+
+def to_posix(path: str) -> str:
+    """Convert path to POSIX-style separators for glob matching."""
+    return normalize_path(path).replace('\\', '/')
+
+def is_path_matched_by_any_glob(path: str, patterns: List[str]) -> bool:
+    """Return True if path matches any of the glob patterns (POSIX-style)."""
+    p = to_posix(path)
+    for pattern in patterns:
+        if fnmatch.fnmatch(p, pattern):
+            return True
+    return False
 
 
 def is_excluded(name, patterns):
@@ -67,13 +80,19 @@ if __name__ == '__main__':
     for index, file in enumerate(all_files, 1):
         print(f"{index}. {file}")
 
-    selected_input = input("Enter the file numbers or file paths (separated by spaces): ")
+    selected_input = input("Enter the file numbers or file paths (separated by spaces). "
+                           "To exclude by glob, prefix with '-' (e.g., '1-100 -*/dist/*'): ")
     norm_to_original = {normalize_path(f): f for f in all_files}
     selected_files = []
     added = set()
     input_parts = selected_input.split()
+    exclude_globs = []
 
     for part in input_parts:
+        # Exclude glob patterns prefixed with '-'
+        if part.startswith('-') and len(part) > 1:
+            exclude_globs.append(part[1:])
+            continue
         if '-' in part:
             try:
                 start, end = map(int, part.split('-'))
@@ -100,6 +119,10 @@ if __name__ == '__main__':
             if file not in added:
                 selected_files.append(file)
                 added.add(file)
+
+    # Apply exclude glob patterns to selected files
+    if exclude_globs:
+        selected_files = [f for f in selected_files if not is_path_matched_by_any_glob(f, exclude_globs)]
 
     list_files(selected_files)
     print("Files have been listed in 'out.txt'.")
