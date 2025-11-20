@@ -28,6 +28,7 @@ excludes_files = {
     'empty',
     '*.ico',
     '*.xlsx',
+    '*.png',
 }
 
 
