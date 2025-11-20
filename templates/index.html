@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>File selector</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+<div id="app">
+    <h1>File selector</h1>
+    <div id="root-path-container">
+        <span id="root-path-label">Root path:</span>
+        <span id="root-path-value"></span>
+    </div>
+    <div id="file-list"></div>
+    <div id="input-container">
+        <label for="selection-input">Selection input:</label>
+        <input id="selection-input" type="text" autocomplete="off">
+        <div id="error-message"></div>
+    </div>
+    <div id="buttons-container">
+        <button id="apply-button" type="button">Apply</button>
+        <button id="cancel-button" type="button">Cancel</button>
+    </div>
+</div>
+<script>
+window.FILE_SELECTOR_DATA = {{ data|tojson }};
+</script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
+
