@@ -56,6 +56,7 @@ def apply_selection():
     indices = payload.get("selected_indices", [])
     if not isinstance(indices, list):
         return jsonify({"status": "error", "error": "Invalid indices"}), 400
+    shutdown_fn = request.environ.get("werkzeug.server.shutdown")
     try:
         selected_files: List[str] = []
         for raw_index in indices:
@@ -67,9 +68,12 @@ def apply_selection():
         list_files(ROOT_PATH, selected_files)
     except Exception as exc:
         return jsonify({"status": "error", "error": str(exc)}), 500
-    shutdown = request.environ.get("werkzeug.server.shutdown")
-    if shutdown is not None:
-        shutdown()
+    def terminate_app():
+        if shutdown_fn is not None:
+            shutdown_fn()
+        os._exit(0)
+
+    threading.Thread(target=terminate_app, daemon=True).start()
     return jsonify({"status": "ok"})
 
 
