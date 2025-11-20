@@ -27,30 +27,12 @@ document.addEventListener("DOMContentLoaded", function () {
         inputElement.classList.add("error");
     }
 
-    function buildAbsolutePath(relativePath) {
-        if (!rootPath) {
-            return relativePath;
-        }
-        var needsSeparator = true;
-        if (rootPath.endsWith(pathSeparator)) {
-            needsSeparator = false;
-        }
-        if (relativePath.startsWith(pathSeparator)) {
-            needsSeparator = false;
-        }
-        if (needsSeparator) {
-            return rootPath + pathSeparator + relativePath;
-        }
-        return rootPath + relativePath;
-    }
-
     function updateSelectionFromCheckboxes() {
         var selectedPaths = [];
         for (var i = 0; i < checkboxes.length; i += 1) {
             if (checkboxes[i].checked) {
                 var relativePath = files[i];
-                var absolutePath = buildAbsolutePath(relativePath);
-                selectedPaths.push(absolutePath);
+                selectedPaths.push(relativePath);
             }
         }
         suppressInputHandler = true;
@@ -93,6 +75,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     clearError();
                     var indices = Array.isArray(data.selected_indices) ? data.selected_indices : [];
                     setCheckboxStates(indices);
+                    updateSelectionFromCheckboxes();
                 } else if (data.status === "error") {
                     var message = typeof data.error === "string" ? data.error : "Invalid input";
                     showError(message);
@@ -210,7 +193,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
                 if (data.status === "ok") {
                     clearError();
-                    alert("File out.txt has been created. You can close this window.");
+                    window.close();
                 } else {
                     var message = typeof data.error === "string" ? data.error : "Failed to apply selection";
                     showError(message);
