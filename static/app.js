@@ -193,7 +193,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
                 if (data.status === "ok") {
                     clearError();
-                    window.close();
                 } else {
                     var message = typeof data.error === "string" ? data.error : "Failed to apply selection";
                     showError(message);
@@ -205,7 +204,9 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     cancelButton.addEventListener("click", function () {
-        window.close();
+        clearError();
+        inputElement.value = "";
+        setCheckboxStates([]);
     });
 });
 
