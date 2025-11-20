@@ -14,6 +14,8 @@ ALL_FILES: List[str] = []
 NORM_TO_ORIGINAL: Dict[str, str] = {}
 ABS_TO_REL: Dict[str, str] = {}
 FILE_TO_INDEX: Dict[str, int] = {}
+SHOULD_SHUTDOWN = threading.Event()
+SHUTDOWN_STARTED = threading.Event()
 
 
 def initialize_state(root_path: str) -> None:
@@ -56,7 +58,6 @@ def apply_selection():
     indices = payload.get("selected_indices", [])
     if not isinstance(indices, list):
         return jsonify({"status": "error", "error": "Invalid indices"}), 400
-    shutdown_fn = request.environ.get("werkzeug.server.shutdown")
     try:
         selected_files: List[str] = []
         for raw_index in indices:
@@ -68,13 +69,26 @@ def apply_selection():
         list_files(ROOT_PATH, selected_files)
     except Exception as exc:
         return jsonify({"status": "error", "error": str(exc)}), 500
+    SHOULD_SHUTDOWN.set()
+    return jsonify({"status": "ok"})
+
+
+@app.after_request
+def shutdown_on_apply(response):
+    if not SHOULD_SHUTDOWN.is_set() or SHUTDOWN_STARTED.is_set():
+        return response
+
     def terminate_app():
+        shutdown_fn = request.environ.get("werkzeug.server.shutdown")
         if shutdown_fn is not None:
             shutdown_fn()
         os._exit(0)
 
-    threading.Thread(target=terminate_app, daemon=True).start()
-    return jsonify({"status": "ok"})
+    SHUTDOWN_STARTED.set()
+    response.call_on_close(
+        lambda: threading.Thread(target=terminate_app, daemon=True).start()
+    )
+    return response
 
 
 def run_server(root_path: str) -> None:
