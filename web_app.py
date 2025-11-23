@@ -14,13 +14,15 @@ ALL_FILES: List[str] = []
 NORM_TO_ORIGINAL: Dict[str, str] = {}
 ABS_TO_REL: Dict[str, str] = {}
 FILE_TO_INDEX: Dict[str, int] = {}
+OUTPUT_FILENAME: str = "out.txt"
 SHOULD_SHUTDOWN = threading.Event()
 SHUTDOWN_STARTED = threading.Event()
 
 
-def initialize_state(root_path: str) -> None:
-    global ROOT_PATH, ALL_FILES, NORM_TO_ORIGINAL, ABS_TO_REL, FILE_TO_INDEX
+def initialize_state(root_path: str, output_filename: str) -> None:
+    global ROOT_PATH, ALL_FILES, NORM_TO_ORIGINAL, ABS_TO_REL, FILE_TO_INDEX, OUTPUT_FILENAME
     ROOT_PATH = root_path
+    OUTPUT_FILENAME = output_filename
     ALL_FILES, NORM_TO_ORIGINAL, ABS_TO_REL = build_file_index(ROOT_PATH)
     FILE_TO_INDEX = {path: index for index, path in enumerate(ALL_FILES)}
 
@@ -66,7 +68,7 @@ def apply_selection():
             if raw_index < 0 or raw_index >= len(ALL_FILES):
                 raise ValueError("Index out of range")
             selected_files.append(ALL_FILES[raw_index])
-        list_files(ROOT_PATH, selected_files)
+        list_files(ROOT_PATH, selected_files, OUTPUT_FILENAME)
     except Exception as exc:
         return jsonify({"status": "error", "error": str(exc)}), 500
     SHOULD_SHUTDOWN.set()
@@ -94,11 +96,11 @@ def shutdown_on_apply(response):
     return response
 
 
-def run_server(root_path: str) -> None:
+def run_server(root_path: str, output_filename: str) -> None:
     absolute_root = os.path.abspath(root_path)
     if not os.path.isdir(absolute_root):
         raise ValueError(f"Path is not a directory: {absolute_root}")
-    initialize_state(absolute_root)
+    initialize_state(absolute_root, output_filename)
     url = "http://127.0.0.1:5000/"
 
     def open_browser():

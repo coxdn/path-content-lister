@@ -133,8 +133,8 @@ def parse_selection_input(
     return selected_files
 
 
-def list_files(root_path: str, files: List[str]) -> None:
-    with open("out.txt", "w", encoding="utf-8") as out_file:
+def list_files(root_path: str, files: List[str], output_filename: str) -> None:
+    with open(output_filename, "w", encoding="utf-8") as out_file:
         for file in files:
             full_path = os.path.join(root_path, file)
             out_file.write(f"file listing {file}:\n")
