@@ -12,21 +12,38 @@
         <span id="root-path-label">Root path:</span>
         <span id="root-path-value"></span>
     </div>
+
+    <div id="file-list-header" class="file-row header-row">
+        <span class="column-label checkbox-col">C</span>
+        <span class="column-label checkbox-col">E</span>
+        <span class="file-index">#</span>
+        <span class="file-path">Path (size)</span>
+    </div>
     <div id="file-list"></div>
+
     <div id="input-container">
         <label for="selection-input">Selection input:</label>
         <input id="selection-input" type="text" autocomplete="off">
         <div id="error-message"></div>
     </div>
+
     <div id="buttons-container">
         <button id="apply-button" type="button">Apply</button>
         <button id="cancel-button" type="button">Cancel</button>
     </div>
 </div>
+
+<div id="selection-summary" aria-live="polite">
+    <div class="summary-title">Selection summary</div>
+    <div><strong>Selected:</strong> <span id="summary-selected-count">0</span></div>
+    <div><strong>Total size:</strong> <span id="summary-selected-size">0 B</span></div>
+    <div><strong>Output file:</strong> <span id="summary-output-name"></span></div>
+    <div><strong>Save path:</strong> <span id="summary-output-path"></span></div>
+</div>
+
 <script>
 window.FILE_SELECTOR_DATA = {{ data|tojson }};
 </script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
-
