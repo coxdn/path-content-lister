@@ -6,6 +6,7 @@ body {
 #app {
     max-width: 960px;
     margin: 0 auto;
+    padding-right: 280px;
 }
 
 #root-path-container {
@@ -15,6 +16,14 @@ body {
 #root-path-label {
     font-weight: bold;
     margin-right: 4px;
+}
+
+#file-list-header {
+    border: 1px solid #cccccc;
+    border-bottom: none;
+    padding: 8px;
+    background: #f5f6f8;
+    font-weight: bold;
 }
 
 #file-list {
@@ -31,9 +40,21 @@ body {
     padding: 2px 0;
 }
 
+.header-row {
+    padding: 4px 8px;
+}
+
+.checkbox-col {
+    width: 26px;
+    text-align: center;
+    flex-shrink: 0;
+    margin-right: 6px;
+}
+
 .file-checkbox {
-    margin-right: 8px;
-    pointer-events: none;
+    width: 16px;
+    height: 16px;
+    margin-right: 10px;
 }
 
 .file-index {
@@ -75,3 +96,22 @@ body {
     margin-right: 8px;
 }
 
+#selection-summary {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    width: 240px;
+    border: 1px solid #d4d7dc;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    font-size: 13px;
+    line-height: 1.35;
+    z-index: 50;
+}
+
+.summary-title {
+    font-weight: bold;
+    margin-bottom: 8px;
+}

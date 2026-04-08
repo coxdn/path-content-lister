@@ -1,21 +1,44 @@
 document.addEventListener("DOMContentLoaded", function () {
-    var data = window.FILE_SELECTOR_DATA || { rootPath: "", files: [] };
+    var data = window.FILE_SELECTOR_DATA || {};
     var rootPath = data.rootPath || "";
-    var files = data.files || [];
+    var files = Array.isArray(data.files) ? data.files : [];
+    var fileSizes = Array.isArray(data.fileSizes) ? data.fileSizes : [];
+    var outputFilename = data.outputFilename || "out.txt";
+    var outputPathPreview = data.outputPathPreview || "";
+
     var fileListElement = document.getElementById("file-list");
     var rootPathValueElement = document.getElementById("root-path-value");
     var inputElement = document.getElementById("selection-input");
     var applyButton = document.getElementById("apply-button");
     var cancelButton = document.getElementById("cancel-button");
     var errorElement = document.getElementById("error-message");
-    var checkboxes = [];
-    var lastClickedIndex = null;
-    var dragActive = false;
-    var dragState = false;
+
+    var summarySelectedCountElement = document.getElementById("summary-selected-count");
+    var summarySelectedSizeElement = document.getElementById("summary-selected-size");
+    var summaryOutputNameElement = document.getElementById("summary-output-name");
+    var summaryOutputPathElement = document.getElementById("summary-output-path");
+
+    var primaryCheckboxes = [];
+    var secondaryCheckboxes = [];
+    var rowModes = [];
+
     var suppressInputHandler = false;
-    var pathSeparator = rootPath.indexOf("\\") !== -1 ? "\\" : "/";
+    var lastClickedIndexByMode = { 1: null, 2: null };
+    var dragActive = false;
+    var dragMode = 0;
+    var dragState = false;
 
     rootPathValueElement.textContent = rootPath;
+    summaryOutputNameElement.textContent = outputFilename;
+    summaryOutputPathElement.textContent = outputPathPreview;
+
+    function formatSize(bytes) {
+        var value = Number(bytes) || 0;
+        if (value < 1024) {
+            return String(value) + " B";
+        }
+        return (value / 1024).toFixed(1) + " KB";
+    }
 
     function clearError() {
         errorElement.textContent = "";
@@ -24,35 +47,85 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function showError(message) {
         errorElement.textContent = message;
-        inputElement.classList.add("error");
+        if (message) {
+            inputElement.classList.add("error");
+        } else {
+            inputElement.classList.remove("error");
+        }
     }
 
-    function updateSelectionFromCheckboxes() {
-        var selectedPaths = [];
-        for (var i = 0; i < checkboxes.length; i += 1) {
-            if (checkboxes[i].checked) {
-                var relativePath = files[i];
-                selectedPaths.push(relativePath);
+    function setRowMode(index, mode) {
+        rowModes[index] = mode;
+        primaryCheckboxes[index].checked = mode === 1;
+        secondaryCheckboxes[index].checked = mode === 2;
+    }
+
+    function setModesFromIndices(primaryIndices, secondaryIndices) {
+        var i;
+        for (i = 0; i < rowModes.length; i += 1) {
+            setRowMode(i, 0);
+        }
+        for (i = 0; i < primaryIndices.length; i += 1) {
+            var pIndex = primaryIndices[i];
+            if (pIndex >= 0 && pIndex < rowModes.length) {
+                setRowMode(pIndex, 1);
             }
         }
+        for (i = 0; i < secondaryIndices.length; i += 1) {
+            var sIndex = secondaryIndices[i];
+            if (sIndex >= 0 && sIndex < rowModes.length) {
+                setRowMode(sIndex, 2);
+            }
+        }
+    }
+
+    function updateSelectionInputFromModes() {
+        var primaryPaths = [];
+        var secondaryPaths = [];
+        var i;
+
+        for (i = 0; i < rowModes.length; i += 1) {
+            if (rowModes[i] === 1) {
+                primaryPaths.push(files[i]);
+            } else if (rowModes[i] === 2) {
+                secondaryPaths.push("2#" + files[i]);
+            }
+        }
+
         suppressInputHandler = true;
-        inputElement.value = selectedPaths.join(" ");
+        inputElement.value = primaryPaths.concat(secondaryPaths).join(" ");
         suppressInputHandler = false;
-        if (selectedPaths.length > 0) {
-            clearError();
-        }
     }
 
-    function setCheckboxStates(indices) {
-        for (var i = 0; i < checkboxes.length; i += 1) {
-            checkboxes[i].checked = false;
-        }
-        for (var j = 0; j < indices.length; j += 1) {
-            var index = indices[j];
-            if (index >= 0 && index < checkboxes.length) {
-                checkboxes[index].checked = true;
+    function updateSummary() {
+        var selectedCount = 0;
+        var selectedSize = 0;
+
+        for (var i = 0; i < rowModes.length; i += 1) {
+            if (rowModes[i] !== 0) {
+                selectedCount += 1;
+                selectedSize += Number(fileSizes[i]) || 0;
             }
         }
+
+        summarySelectedCountElement.textContent = String(selectedCount);
+        summarySelectedSizeElement.textContent = formatSize(selectedSize);
+    }
+
+    function refreshDerivedUI() {
+        updateSelectionInputFromModes();
+        updateSummary();
+        clearError();
+    }
+
+    function collectIndicesByMode(mode) {
+        var indices = [];
+        for (var i = 0; i < rowModes.length; i += 1) {
+            if (rowModes[i] === mode) {
+                indices.push(i);
+            }
+        }
+        return indices;
     }
 
     function sendParseRequest(text) {
@@ -63,22 +136,30 @@ document.addEventListener("DOMContentLoaded", function () {
             },
             body: JSON.stringify({ text: text })
         })
-            .then(function (response) {
-                return response.json();
-            })
-            .then(function (data) {
-                if (!data || typeof data.status !== "string") {
+            .then(function (response) { return response.json(); })
+            .then(function (responseData) {
+                if (!responseData || responseData.status !== "ok") {
                     showError("Invalid server response");
                     return;
                 }
-                if (data.status === "ok") {
+
+                var primaryIndices = Array.isArray(responseData.primary_indices) ? responseData.primary_indices : [];
+                var secondaryIndices = Array.isArray(responseData.secondary_indices) ? responseData.secondary_indices : [];
+                var missingPaths = Array.isArray(responseData.missing_paths) ? responseData.missing_paths : [];
+                var normalizedInput = typeof responseData.normalized_input === "string" ? responseData.normalized_input : "";
+
+                setModesFromIndices(primaryIndices, secondaryIndices);
+
+                suppressInputHandler = true;
+                inputElement.value = normalizedInput;
+                suppressInputHandler = false;
+
+                updateSummary();
+
+                if (missingPaths.length > 0) {
+                    showError(missingPaths.join(" "));
+                } else {
                     clearError();
-                    var indices = Array.isArray(data.selected_indices) ? data.selected_indices : [];
-                    setCheckboxStates(indices);
-                    updateSelectionFromCheckboxes();
-                } else if (data.status === "error") {
-                    var message = typeof data.error === "string" ? data.error : "Invalid input";
-                    showError(message);
                 }
             })
             .catch(function () {
@@ -86,56 +167,52 @@ document.addEventListener("DOMContentLoaded", function () {
             });
     }
 
-    function collectSelectedIndices() {
-        var indices = [];
-        for (var i = 0; i < checkboxes.length; i += 1) {
-            if (checkboxes[i].checked) {
-                indices.push(i);
-            }
-        }
-        return indices;
-    }
-
-    function handleRowMouseDown(index, event) {
+    function handleMouseDown(index, mode, event) {
         if (event.button !== 0) {
             return;
         }
+
         event.preventDefault();
-        var checkbox = checkboxes[index];
-        if (event.shiftKey && lastClickedIndex !== null) {
-            var start = Math.min(lastClickedIndex, index);
-            var end = Math.max(lastClickedIndex, index);
-            var targetState = !checkbox.checked;
+        var currentMode = rowModes[index];
+
+        if (event.shiftKey && lastClickedIndexByMode[mode] !== null) {
+            var start = Math.min(lastClickedIndexByMode[mode], index);
+            var end = Math.max(lastClickedIndexByMode[mode], index);
+            var targetChecked = !(currentMode === mode);
             for (var i = start; i <= end; i += 1) {
-                checkboxes[i].checked = targetState;
+                setRowMode(i, targetChecked ? mode : 0);
             }
-            lastClickedIndex = index;
-            updateSelectionFromCheckboxes();
+            lastClickedIndexByMode[mode] = index;
+            refreshDerivedUI();
             dragActive = false;
             return;
         }
+
         dragActive = true;
-        dragState = !checkbox.checked;
-        checkbox.checked = dragState;
-        lastClickedIndex = index;
-        updateSelectionFromCheckboxes();
+        dragMode = mode;
+        dragState = !(currentMode === mode);
+        setRowMode(index, dragState ? mode : 0);
+        lastClickedIndexByMode[mode] = index;
+        refreshDerivedUI();
     }
 
-    function handleRowMouseEnter(index) {
-        if (!dragActive) {
+    function handleMouseEnter(index, mode) {
+        if (!dragActive || dragMode !== mode) {
             return;
         }
-        var checkbox = checkboxes[index];
-        if (checkbox.checked !== dragState) {
-            checkbox.checked = dragState;
-            updateSelectionFromCheckboxes();
+
+        var targetMode = dragState ? mode : 0;
+        if (rowModes[index] !== targetMode) {
+            setRowMode(index, targetMode);
+            refreshDerivedUI();
         }
     }
 
     document.addEventListener("mouseup", function () {
         if (dragActive) {
             dragActive = false;
-            updateSelectionFromCheckboxes();
+            dragMode = 0;
+            updateSummary();
         }
     });
 
@@ -143,9 +220,15 @@ document.addEventListener("DOMContentLoaded", function () {
         var row = document.createElement("div");
         row.className = "file-row";
 
-        var checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.className = "file-checkbox";
+        var primaryCheckbox = document.createElement("input");
+        primaryCheckbox.type = "checkbox";
+        primaryCheckbox.className = "file-checkbox";
+        primaryCheckbox.title = "Content mode";
+
+        var secondaryCheckbox = document.createElement("input");
+        secondaryCheckbox.type = "checkbox";
+        secondaryCheckbox.className = "file-checkbox";
+        secondaryCheckbox.title = "Exists mode";
 
         var indexSpan = document.createElement("span");
         indexSpan.className = "file-index";
@@ -153,49 +236,56 @@ document.addEventListener("DOMContentLoaded", function () {
 
         var pathSpan = document.createElement("span");
         pathSpan.className = "file-path";
-        pathSpan.textContent = files[i];
+        pathSpan.textContent = files[i] + " (" + formatSize(fileSizes[i]) + ")";
 
-        row.addEventListener("mousedown", handleRowMouseDown.bind(null, i));
-        row.addEventListener("mouseenter", handleRowMouseEnter.bind(null, i));
-
-        row.appendChild(checkbox);
+        row.appendChild(primaryCheckbox);
+        row.appendChild(secondaryCheckbox);
         row.appendChild(indexSpan);
         row.appendChild(pathSpan);
 
+        primaryCheckbox.addEventListener("mousedown", handleMouseDown.bind(null, i, 1));
+        secondaryCheckbox.addEventListener("mousedown", handleMouseDown.bind(null, i, 2));
+        primaryCheckbox.addEventListener("mouseenter", handleMouseEnter.bind(null, i, 1));
+        secondaryCheckbox.addEventListener("mouseenter", handleMouseEnter.bind(null, i, 2));
+
         fileListElement.appendChild(row);
-        checkboxes.push(checkbox);
+
+        primaryCheckboxes.push(primaryCheckbox);
+        secondaryCheckboxes.push(secondaryCheckbox);
+        rowModes.push(0);
     }
 
     inputElement.addEventListener("input", function () {
         if (suppressInputHandler) {
             return;
         }
-        var text = inputElement.value || "";
-        sendParseRequest(text);
+        sendParseRequest(inputElement.value || "");
     });
 
     applyButton.addEventListener("click", function () {
-        var indices = collectSelectedIndices();
+        var primaryIndices = collectIndicesByMode(1);
+        var secondaryIndices = collectIndicesByMode(2);
+
         fetch("/apply", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({ selected_indices: indices })
-        })
-            .then(function (response) {
-                return response.json();
+            body: JSON.stringify({
+                primary_indices: primaryIndices,
+                secondary_indices: secondaryIndices
             })
-            .then(function (data) {
-                if (!data || typeof data.status !== "string") {
+        })
+            .then(function (response) { return response.json(); })
+            .then(function (responseData) {
+                if (!responseData || typeof responseData.status !== "string") {
                     showError("Invalid server response");
                     return;
                 }
-                if (data.status === "ok") {
+                if (responseData.status === "ok") {
                     clearError();
                 } else {
-                    var message = typeof data.error === "string" ? data.error : "Failed to apply selection";
-                    showError(message);
+                    showError(typeof responseData.error === "string" ? responseData.error : "Failed to apply selection");
                 }
             })
             .catch(function () {
@@ -204,9 +294,15 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     cancelButton.addEventListener("click", function () {
-        clearError();
+        for (var i = 0; i < rowModes.length; i += 1) {
+            setRowMode(i, 0);
+        }
+        suppressInputHandler = true;
         inputElement.value = "";
-        setCheckboxStates([]);
+        suppressInputHandler = false;
+        clearError();
+        updateSummary();
     });
-});
 
+    updateSummary();
+});

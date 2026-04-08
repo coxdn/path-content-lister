@@ -1,11 +1,11 @@
 import os
 import threading
 import webbrowser
-from typing import List, Dict
+from typing import Dict, List
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, jsonify, render_template, request
 
-from file_selector_core import build_file_index, parse_selection_input, list_files
+from file_selector_core import build_file_index, list_files, parse_selection_input
 
 app = Flask(__name__)
 
@@ -14,16 +14,22 @@ ALL_FILES: List[str] = []
 NORM_TO_ORIGINAL: Dict[str, str] = {}
 ABS_TO_REL: Dict[str, str] = {}
 FILE_TO_INDEX: Dict[str, int] = {}
+FILE_SIZES: Dict[str, int] = {}
 OUTPUT_FILENAME: str = "out.txt"
+OUTPUT_PATH_PREVIEW: str = ""
 SHOULD_SHUTDOWN = threading.Event()
 SHUTDOWN_STARTED = threading.Event()
 
 
 def initialize_state(root_path: str, output_filename: str) -> None:
-    global ROOT_PATH, ALL_FILES, NORM_TO_ORIGINAL, ABS_TO_REL, FILE_TO_INDEX, OUTPUT_FILENAME
+    global ROOT_PATH, ALL_FILES, NORM_TO_ORIGINAL, ABS_TO_REL
+    global FILE_TO_INDEX, FILE_SIZES, OUTPUT_FILENAME, OUTPUT_PATH_PREVIEW
+
     ROOT_PATH = root_path
     OUTPUT_FILENAME = output_filename
-    ALL_FILES, NORM_TO_ORIGINAL, ABS_TO_REL = build_file_index(ROOT_PATH)
+    OUTPUT_PATH_PREVIEW = os.path.abspath(output_filename)
+
+    ALL_FILES, NORM_TO_ORIGINAL, ABS_TO_REL, FILE_SIZES = build_file_index(ROOT_PATH)
     FILE_TO_INDEX = {path: index for index, path in enumerate(ALL_FILES)}
 
 
@@ -32,6 +38,9 @@ def index():
     data = {
         "rootPath": ROOT_PATH,
         "files": ALL_FILES,
+        "fileSizes": [FILE_SIZES.get(path, 0) for path in ALL_FILES],
+        "outputFilename": OUTPUT_FILENAME,
+        "outputPathPreview": OUTPUT_PATH_PREVIEW,
     }
     return render_template("index.html", data=data)
 
@@ -40,37 +49,64 @@ def index():
 def parse():
     payload = request.get_json(force=True) or {}
     text = payload.get("text", "")
-    try:
-        selected_files = parse_selection_input(
-            text, ALL_FILES, NORM_TO_ORIGINAL, ABS_TO_REL
-        )
-    except ValueError as exc:
-        return jsonify({"status": "error", "error": str(exc)})
-    indices: List[int] = []
-    for file in selected_files:
-        index = FILE_TO_INDEX.get(file)
+
+    result = parse_selection_input(text, ALL_FILES, NORM_TO_ORIGINAL, ABS_TO_REL)
+
+    primary_indices: List[int] = []
+    secondary_indices: List[int] = []
+
+    for path in result.primary_files:
+        index = FILE_TO_INDEX.get(path)
         if index is not None:
-            indices.append(index)
-    return jsonify({"status": "ok", "selected_indices": indices})
+            primary_indices.append(index)
+
+    for path in result.secondary_files:
+        index = FILE_TO_INDEX.get(path)
+        if index is not None:
+            secondary_indices.append(index)
+
+    return jsonify(
+        {
+            "status": "ok",
+            "primary_indices": primary_indices,
+            "secondary_indices": secondary_indices,
+            "missing_paths": result.missing_paths,
+            "normalized_input": result.normalized_input,
+        }
+    )
 
 
 @app.route("/apply", methods=["POST"])
 def apply_selection():
     payload = request.get_json(force=True) or {}
-    indices = payload.get("selected_indices", [])
-    if not isinstance(indices, list):
-        return jsonify({"status": "error", "error": "Invalid indices"}), 400
+    primary_indices = payload.get("primary_indices", [])
+    secondary_indices = payload.get("secondary_indices", [])
+
+    if not isinstance(primary_indices, list) or not isinstance(secondary_indices, list):
+        return jsonify({"status": "error", "error": "Invalid indices payload"}), 400
+
     try:
-        selected_files: List[str] = []
-        for raw_index in indices:
+        primary_files: List[str] = []
+        secondary_files: List[str] = []
+
+        for raw_index in primary_indices:
             if not isinstance(raw_index, int):
-                raise ValueError("Index must be integer")
+                raise ValueError("Primary index must be integer")
             if raw_index < 0 or raw_index >= len(ALL_FILES):
-                raise ValueError("Index out of range")
-            selected_files.append(ALL_FILES[raw_index])
-        list_files(ROOT_PATH, selected_files, OUTPUT_FILENAME)
+                raise ValueError("Primary index out of range")
+            primary_files.append(ALL_FILES[raw_index])
+
+        for raw_index in secondary_indices:
+            if not isinstance(raw_index, int):
+                raise ValueError("Secondary index must be integer")
+            if raw_index < 0 or raw_index >= len(ALL_FILES):
+                raise ValueError("Secondary index out of range")
+            secondary_files.append(ALL_FILES[raw_index])
+
+        list_files(ROOT_PATH, primary_files, secondary_files, OUTPUT_FILENAME)
     except Exception as exc:
         return jsonify({"status": "error", "error": str(exc)}), 500
+
     SHOULD_SHUTDOWN.set()
     return jsonify({"status": "ok"})
 
@@ -100,6 +136,7 @@ def run_server(root_path: str, output_filename: str) -> None:
     absolute_root = os.path.abspath(root_path)
     if not os.path.isdir(absolute_root):
         raise ValueError(f"Path is not a directory: {absolute_root}")
+
     initialize_state(absolute_root, output_filename)
     url = "http://127.0.0.1:5000/"
 
@@ -109,5 +146,5 @@ def run_server(root_path: str, output_filename: str) -> None:
     timer = threading.Timer(0.5, open_browser)
     timer.daemon = True
     timer.start()
-    app.run(host="127.0.0.1", port=5000, debug=False)
 
+    app.run(host="127.0.0.1", port=5000, debug=False)
