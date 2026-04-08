@@ -24,9 +24,16 @@ document.addEventListener("DOMContentLoaded", function () {
 
     var suppressInputHandler = false;
     var lastClickedIndexByMode = { 1: null, 2: null };
-    var dragActive = false;
-    var dragMode = 0;
-    var dragState = false;
+    var DRAG_THRESHOLD_PX = 5;
+    var pointerGesture = {
+        state: "idle",
+        pointerId: null,
+        startX: 0,
+        startY: 0,
+        startIndex: -1,
+        mode: 0,
+        targetMode: 0
+    };
 
     rootPathValueElement.textContent = rootPath;
     summaryOutputNameElement.textContent = outputFilename;
@@ -167,54 +174,119 @@ document.addEventListener("DOMContentLoaded", function () {
             });
     }
 
-    function handleMouseDown(index, mode, event) {
+    function resetPointerGesture() {
+        pointerGesture.state = "idle";
+        pointerGesture.pointerId = null;
+        pointerGesture.startX = 0;
+        pointerGesture.startY = 0;
+        pointerGesture.startIndex = -1;
+        pointerGesture.mode = 0;
+        pointerGesture.targetMode = 0;
+    }
+
+    function getCheckboxTargetFromPoint(clientX, clientY) {
+        var element = document.elementFromPoint(clientX, clientY);
+        if (!element || !element.classList || !element.classList.contains("file-checkbox")) {
+            return null;
+        }
+
+        var rawIndex = Number(element.dataset.rowIndex);
+        var rawMode = Number(element.dataset.mode);
+        if (!Number.isInteger(rawIndex) || !Number.isInteger(rawMode)) {
+            return null;
+        }
+        return { index: rawIndex, mode: rawMode };
+    }
+
+    function applyRangeSelection(index, mode) {
+        var currentMode = rowModes[index];
+        var start = Math.min(lastClickedIndexByMode[mode], index);
+        var end = Math.max(lastClickedIndexByMode[mode], index);
+        var targetChecked = !(currentMode === mode);
+        for (var i = start; i <= end; i += 1) {
+            setRowMode(i, targetChecked ? mode : 0);
+        }
+        lastClickedIndexByMode[mode] = index;
+        refreshDerivedUI();
+    }
+
+    function beginPointerGesture(index, mode, event) {
         if (event.button !== 0) {
             return;
         }
 
         event.preventDefault();
-        var currentMode = rowModes[index];
-
         if (event.shiftKey && lastClickedIndexByMode[mode] !== null) {
-            var start = Math.min(lastClickedIndexByMode[mode], index);
-            var end = Math.max(lastClickedIndexByMode[mode], index);
-            var targetChecked = !(currentMode === mode);
-            for (var i = start; i <= end; i += 1) {
-                setRowMode(i, targetChecked ? mode : 0);
+            applyRangeSelection(index, mode);
+            resetPointerGesture();
+            return;
+        }
+
+        pointerGesture.state = "press";
+        pointerGesture.pointerId = event.pointerId;
+        pointerGesture.startX = event.clientX;
+        pointerGesture.startY = event.clientY;
+        pointerGesture.startIndex = index;
+        pointerGesture.mode = mode;
+        pointerGesture.targetMode = rowModes[index] === mode ? 0 : mode;
+
+        if (event.currentTarget && event.currentTarget.setPointerCapture) {
+            event.currentTarget.setPointerCapture(event.pointerId);
+        }
+    }
+
+    function handlePointerMove(event) {
+        if (pointerGesture.state === "idle" || pointerGesture.pointerId !== event.pointerId) {
+            return;
+        }
+
+        if (pointerGesture.state === "press") {
+            var dx = event.clientX - pointerGesture.startX;
+            var dy = event.clientY - pointerGesture.startY;
+            var distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < DRAG_THRESHOLD_PX) {
+                return;
             }
-            lastClickedIndexByMode[mode] = index;
-            refreshDerivedUI();
-            dragActive = false;
+
+            pointerGesture.state = "drag";
+            if (rowModes[pointerGesture.startIndex] !== pointerGesture.targetMode) {
+                setRowMode(pointerGesture.startIndex, pointerGesture.targetMode);
+                refreshDerivedUI();
+            }
+        }
+
+        if (pointerGesture.state !== "drag") {
             return;
         }
 
-        dragActive = true;
-        dragMode = mode;
-        dragState = !(currentMode === mode);
-        setRowMode(index, dragState ? mode : 0);
-        lastClickedIndexByMode[mode] = index;
-        refreshDerivedUI();
-    }
-
-    function handleMouseEnter(index, mode) {
-        if (!dragActive || dragMode !== mode) {
+        var target = getCheckboxTargetFromPoint(event.clientX, event.clientY);
+        if (!target || target.mode !== pointerGesture.mode) {
             return;
         }
 
-        var targetMode = dragState ? mode : 0;
-        if (rowModes[index] !== targetMode) {
-            setRowMode(index, targetMode);
+        if (rowModes[target.index] !== pointerGesture.targetMode) {
+            setRowMode(target.index, pointerGesture.targetMode);
             refreshDerivedUI();
         }
     }
 
-    document.addEventListener("mouseup", function () {
-        if (dragActive) {
-            dragActive = false;
-            dragMode = 0;
-            updateSummary();
+    function finalizePointerGesture(event) {
+        if (pointerGesture.state === "idle" || pointerGesture.pointerId !== event.pointerId) {
+            return;
         }
-    });
+
+        if (pointerGesture.state === "press") {
+            setRowMode(pointerGesture.startIndex, pointerGesture.targetMode);
+            refreshDerivedUI();
+        }
+
+        lastClickedIndexByMode[pointerGesture.mode] = pointerGesture.startIndex;
+        resetPointerGesture();
+    }
+
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", finalizePointerGesture);
+    document.addEventListener("pointercancel", finalizePointerGesture);
 
     for (var i = 0; i < files.length; i += 1) {
         var row = document.createElement("div");
@@ -224,11 +296,15 @@ document.addEventListener("DOMContentLoaded", function () {
         primaryCheckbox.type = "checkbox";
         primaryCheckbox.className = "file-checkbox";
         primaryCheckbox.title = "Content mode";
+        primaryCheckbox.dataset.rowIndex = String(i);
+        primaryCheckbox.dataset.mode = "1";
 
         var secondaryCheckbox = document.createElement("input");
         secondaryCheckbox.type = "checkbox";
         secondaryCheckbox.className = "file-checkbox";
         secondaryCheckbox.title = "Exists mode";
+        secondaryCheckbox.dataset.rowIndex = String(i);
+        secondaryCheckbox.dataset.mode = "2";
 
         var indexSpan = document.createElement("span");
         indexSpan.className = "file-index";
@@ -243,10 +319,14 @@ document.addEventListener("DOMContentLoaded", function () {
         row.appendChild(indexSpan);
         row.appendChild(pathSpan);
 
-        primaryCheckbox.addEventListener("mousedown", handleMouseDown.bind(null, i, 1));
-        secondaryCheckbox.addEventListener("mousedown", handleMouseDown.bind(null, i, 2));
-        primaryCheckbox.addEventListener("mouseenter", handleMouseEnter.bind(null, i, 1));
-        secondaryCheckbox.addEventListener("mouseenter", handleMouseEnter.bind(null, i, 2));
+        primaryCheckbox.addEventListener("pointerdown", beginPointerGesture.bind(null, i, 1));
+        secondaryCheckbox.addEventListener("pointerdown", beginPointerGesture.bind(null, i, 2));
+        primaryCheckbox.addEventListener("click", function (event) {
+            event.preventDefault();
+        });
+        secondaryCheckbox.addEventListener("click", function (event) {
+            event.preventDefault();
+        });
 
         fileListElement.appendChild(row);
 
