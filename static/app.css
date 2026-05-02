@@ -99,8 +99,10 @@ body {
 #selection-summary {
     position: fixed;
     right: 16px;
+    left: auto;
     bottom: 16px;
     width: 240px;
+    max-width: calc(100vw - 32px);
     border: 1px solid #d4d7dc;
     border-radius: 8px;
     background: #ffffff;
@@ -109,9 +111,69 @@ body {
     font-size: 13px;
     line-height: 1.35;
     z-index: 50;
+    transition: width 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+    overflow: hidden;
 }
 
-.summary-title {
+#selection-summary.is-open {
+    left: 0;
+    right: 16px;
+    width: auto;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+@media (hover: hover) {
+    #selection-summary:hover {
+        left: 0;
+        right: 16px;
+        width: auto;
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #selection-summary {
+        transition: none;
+    }
+}
+
+.summary-title-button {
+    display: block;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    margin: 0 0 8px 0;
+    text-align: left;
     font-weight: bold;
-    margin-bottom: 8px;
+    font-size: inherit;
+    line-height: inherit;
+    cursor: pointer;
+}
+
+#summary-output-name,
+#summary-output-path {
+    overflow-wrap: anywhere;
+}
+
+#selection-summary {
+  /* уже есть ваши fixed/right/bottom/width... */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start; /* контент к верхнему краю */
+  height: var(--summary-fixed-height, 140px); /* единая высота */
+}
+
+#selection-summary.is-open,
+@media (hover: hover) {
+  #selection-summary:hover {
+    height: var(--summary-fixed-height, 140px); /* та же высота */
+  }
+}
+
+#selection-summary-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;     /* если текста больше — скролл внутри */
+  overflow-x: hidden;
 }

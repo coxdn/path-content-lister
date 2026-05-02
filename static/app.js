@@ -17,6 +17,8 @@ document.addEventListener("DOMContentLoaded", function () {
     var summarySelectedSizeElement = document.getElementById("summary-selected-size");
     var summaryOutputNameElement = document.getElementById("summary-output-name");
     var summaryOutputPathElement = document.getElementById("summary-output-path");
+    var summaryElement = document.getElementById("selection-summary");
+    var summaryToggleButton = document.getElementById("summary-toggle");
 
     var primaryCheckboxes = [];
     var secondaryCheckboxes = [];
@@ -38,6 +40,23 @@ document.addEventListener("DOMContentLoaded", function () {
     rootPathValueElement.textContent = rootPath;
     summaryOutputNameElement.textContent = outputFilename;
     summaryOutputPathElement.textContent = outputPathPreview;
+
+    function setSummaryExpanded(isExpanded) {
+        if (!summaryElement || !summaryToggleButton) {
+            return;
+        }
+        summaryElement.classList.toggle("is-open", isExpanded);
+        summaryElement.classList.toggle("summary-expanded", isExpanded);
+        summaryElement.classList.toggle("summary-collapsed", !isExpanded);
+        summaryToggleButton.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+    }
+
+    function isSummaryExpanded() {
+        if (!summaryElement) {
+            return false;
+        }
+        return summaryElement.classList.contains("is-open");
+    }
 
     function formatSize(bytes) {
         var value = Number(bytes) || 0;
@@ -182,6 +201,30 @@ document.addEventListener("DOMContentLoaded", function () {
         pointerGesture.startIndex = -1;
         pointerGesture.mode = 0;
         pointerGesture.targetMode = 0;
+    }
+
+    function wireSummaryInteractions() {
+        if (!summaryElement || !summaryToggleButton) {
+            return;
+        }
+
+        setSummaryExpanded(false);
+
+        summaryToggleButton.addEventListener("click", function () {
+            setSummaryExpanded(!isSummaryExpanded());
+        });
+
+        document.addEventListener("keydown", function (event) {
+            if (event.key === "Escape") {
+                setSummaryExpanded(false);
+            }
+        });
+
+        document.addEventListener("pointerdown", function (event) {
+            if (!summaryElement.contains(event.target)) {
+                setSummaryExpanded(false);
+            }
+        });
     }
 
     function getCheckboxTargetFromPoint(clientX, clientY) {
@@ -384,5 +427,6 @@ document.addEventListener("DOMContentLoaded", function () {
         updateSummary();
     });
 
+    wireSummaryInteractions();
     updateSummary();
 });

@@ -33,12 +33,22 @@
     </div>
 </div>
 
-<div id="selection-summary" aria-live="polite">
-    <div class="summary-title">Selection summary</div>
+<div id="selection-summary" class="summary-collapsed" aria-live="polite">
+    <button
+        id="summary-toggle"
+        class="summary-title-button"
+        type="button"
+        aria-expanded="false"
+        aria-controls="selection-summary-content"
+    >
+        Selection summary
+    </button>
+    <div id="selection-summary-content">
     <div><strong>Selected:</strong> <span id="summary-selected-count">0</span></div>
     <div><strong>Total size:</strong> <span id="summary-selected-size">0 B</span></div>
     <div><strong>Output file:</strong> <span id="summary-output-name"></span></div>
     <div><strong>Save path:</strong> <span id="summary-output-path"></span></div>
+    </div>
 </div>
 
 <script>
