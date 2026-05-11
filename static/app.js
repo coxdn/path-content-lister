@@ -23,6 +23,8 @@ document.addEventListener("DOMContentLoaded", function () {
     var primaryCheckboxes = [];
     var secondaryCheckboxes = [];
     var rowModes = [];
+    var fileIndexByPath = Object.create(null);
+    var parseRequestSerial = 0;
 
     var suppressInputHandler = false;
     var lastClickedIndexByMode = { 1: null, 2: null };
@@ -40,6 +42,123 @@ document.addEventListener("DOMContentLoaded", function () {
     rootPathValueElement.textContent = rootPath;
     summaryOutputNameElement.textContent = outputFilename;
     summaryOutputPathElement.textContent = outputPathPreview;
+
+    function normalizeClientPath(path) {
+        return String(path || "").replace(/\\/g, "/");
+    }
+
+    function registerFilePath(path, index) {
+        fileIndexByPath[path] = index;
+        fileIndexByPath[normalizeClientPath(path)] = index;
+    }
+
+    function splitSelectionTokens(text) {
+        var tokens = [];
+        var raw = "";
+        var value = "";
+        var quoteChar = "";
+        var hasToken = false;
+
+        for (var i = 0; i < text.length; i += 1) {
+            var char = text.charAt(i);
+
+            if (quoteChar) {
+                raw += char;
+                if (char === quoteChar) {
+                    quoteChar = "";
+                    hasToken = true;
+                    continue;
+                }
+                value += char;
+                hasToken = true;
+                continue;
+            }
+
+            if (char === "\"" || char === "'") {
+                raw += char;
+                quoteChar = char;
+                hasToken = true;
+                continue;
+            }
+
+            if (/\s/.test(char)) {
+                if (hasToken) {
+                    tokens.push({ raw: raw, value: value });
+                    raw = "";
+                    value = "";
+                    hasToken = false;
+                }
+                continue;
+            }
+
+            raw += char;
+            value += char;
+            hasToken = true;
+        }
+
+        if (hasToken) {
+            tokens.push({ raw: raw, value: value });
+        }
+
+        return tokens;
+    }
+
+    function isIndexSelectionToken(value) {
+        var path = value;
+        if (path.indexOf("2#") === 0 && path.length > 2) {
+            path = path.slice(2);
+        }
+        return /^\d+$/.test(path) || /^\d+-\d+$/.test(path);
+    }
+
+    function getIndexedPathFromTokenValue(value) {
+        var path = value;
+        if (path.indexOf("2#") === 0 && path.length > 2) {
+            path = path.slice(2);
+        }
+
+        if (Object.prototype.hasOwnProperty.call(fileIndexByPath, path)) {
+            return files[fileIndexByPath[path]];
+        }
+
+        var normalizedPath = normalizeClientPath(path);
+        if (Object.prototype.hasOwnProperty.call(fileIndexByPath, normalizedPath)) {
+            return files[fileIndexByPath[normalizedPath]];
+        }
+
+        return null;
+    }
+
+    function collectManualTokensFromInput() {
+        var tokens = splitSelectionTokens(inputElement.value || "");
+        var manualTokens = [];
+
+        for (var i = 0; i < tokens.length; i += 1) {
+            if (isIndexSelectionToken(tokens[i].value)) {
+                continue;
+            }
+            if (getIndexedPathFromTokenValue(tokens[i].value) !== null) {
+                continue;
+            }
+            manualTokens.push(tokens[i].raw);
+        }
+
+        return manualTokens;
+    }
+
+    function buildSelectionTokensFromModes() {
+        var selectedTokens = [];
+
+        for (var i = 0; i < rowModes.length; i += 1) {
+            if (rowModes[i] === 1) {
+                selectedTokens.push(files[i]);
+            } else if (rowModes[i] === 2) {
+                selectedTokens.push("2#" + files[i]);
+            }
+        }
+
+        return selectedTokens;
+    }
 
     function setSummaryExpanded(isExpanded) {
         if (!summaryElement || !summaryToggleButton) {
@@ -106,20 +225,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function updateSelectionInputFromModes() {
-        var primaryPaths = [];
-        var secondaryPaths = [];
-        var i;
-
-        for (i = 0; i < rowModes.length; i += 1) {
-            if (rowModes[i] === 1) {
-                primaryPaths.push(files[i]);
-            } else if (rowModes[i] === 2) {
-                secondaryPaths.push("2#" + files[i]);
-            }
-        }
+        var manualTokens = collectManualTokensFromInput();
+        var selectedTokens = buildSelectionTokensFromModes();
 
         suppressInputHandler = true;
-        inputElement.value = primaryPaths.concat(secondaryPaths).join(" ");
+        inputElement.value = manualTokens.concat(selectedTokens).join(" ");
         suppressInputHandler = false;
     }
 
@@ -144,17 +254,10 @@ document.addEventListener("DOMContentLoaded", function () {
         clearError();
     }
 
-    function collectIndicesByMode(mode) {
-        var indices = [];
-        for (var i = 0; i < rowModes.length; i += 1) {
-            if (rowModes[i] === mode) {
-                indices.push(i);
-            }
-        }
-        return indices;
-    }
-
     function sendParseRequest(text) {
+        var requestId = parseRequestSerial + 1;
+        parseRequestSerial = requestId;
+
         fetch("/parse", {
             method: "POST",
             headers: {
@@ -164,6 +267,10 @@ document.addEventListener("DOMContentLoaded", function () {
         })
             .then(function (response) { return response.json(); })
             .then(function (responseData) {
+                if (requestId !== parseRequestSerial) {
+                    return;
+                }
+
                 if (!responseData || responseData.status !== "ok") {
                     showError("Invalid server response");
                     return;
@@ -172,14 +279,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 var primaryIndices = Array.isArray(responseData.primary_indices) ? responseData.primary_indices : [];
                 var secondaryIndices = Array.isArray(responseData.secondary_indices) ? responseData.secondary_indices : [];
                 var missingPaths = Array.isArray(responseData.missing_paths) ? responseData.missing_paths : [];
-                var normalizedInput = typeof responseData.normalized_input === "string" ? responseData.normalized_input : "";
 
                 setModesFromIndices(primaryIndices, secondaryIndices);
-
-                suppressInputHandler = true;
-                inputElement.value = normalizedInput;
-                suppressInputHandler = false;
-
                 updateSummary();
 
                 if (missingPaths.length > 0) {
@@ -189,6 +290,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
             })
             .catch(function () {
+                if (requestId !== parseRequestSerial) {
+                    return;
+                }
                 showError("Failed to contact server");
             });
     }
@@ -332,6 +436,8 @@ document.addEventListener("DOMContentLoaded", function () {
     document.addEventListener("pointercancel", finalizePointerGesture);
 
     for (var i = 0; i < files.length; i += 1) {
+        registerFilePath(files[i], i);
+
         var row = document.createElement("div");
         row.className = "file-row";
 
@@ -386,17 +492,13 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     applyButton.addEventListener("click", function () {
-        var primaryIndices = collectIndicesByMode(1);
-        var secondaryIndices = collectIndicesByMode(2);
-
         fetch("/apply", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({
-                primary_indices: primaryIndices,
-                secondary_indices: secondaryIndices
+                selection_text: inputElement.value || ""
             })
         })
             .then(function (response) { return response.json(); })

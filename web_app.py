@@ -50,7 +50,7 @@ def parse():
     payload = request.get_json(force=True) or {}
     text = payload.get("text", "")
 
-    result = parse_selection_input(text, ALL_FILES, NORM_TO_ORIGINAL, ABS_TO_REL)
+    result = parse_selection_input(text, ALL_FILES, NORM_TO_ORIGINAL, ABS_TO_REL, ROOT_PATH)
 
     primary_indices: List[int] = []
     secondary_indices: List[int] = []
@@ -71,7 +71,6 @@ def parse():
             "primary_indices": primary_indices,
             "secondary_indices": secondary_indices,
             "missing_paths": result.missing_paths,
-            "normalized_input": result.normalized_input,
         }
     )
 
@@ -79,31 +78,29 @@ def parse():
 @app.route("/apply", methods=["POST"])
 def apply_selection():
     payload = request.get_json(force=True) or {}
-    primary_indices = payload.get("primary_indices", [])
-    secondary_indices = payload.get("secondary_indices", [])
+    selection_text = payload.get("selection_text", "")
 
-    if not isinstance(primary_indices, list) or not isinstance(secondary_indices, list):
-        return jsonify({"status": "error", "error": "Invalid indices payload"}), 400
+    if not isinstance(selection_text, str):
+        return jsonify({"status": "error", "error": "Invalid selection text payload"}), 400
 
     try:
-        primary_files: List[str] = []
-        secondary_files: List[str] = []
+        result = parse_selection_input(
+            selection_text,
+            ALL_FILES,
+            NORM_TO_ORIGINAL,
+            ABS_TO_REL,
+            ROOT_PATH,
+        )
 
-        for raw_index in primary_indices:
-            if not isinstance(raw_index, int):
-                raise ValueError("Primary index must be integer")
-            if raw_index < 0 or raw_index >= len(ALL_FILES):
-                raise ValueError("Primary index out of range")
-            primary_files.append(ALL_FILES[raw_index])
+        if result.missing_paths:
+            return jsonify(
+                {
+                    "status": "error",
+                    "error": "Missing paths: " + " ".join(result.missing_paths),
+                }
+            ), 400
 
-        for raw_index in secondary_indices:
-            if not isinstance(raw_index, int):
-                raise ValueError("Secondary index must be integer")
-            if raw_index < 0 or raw_index >= len(ALL_FILES):
-                raise ValueError("Secondary index out of range")
-            secondary_files.append(ALL_FILES[raw_index])
-
-        list_files(ROOT_PATH, primary_files, secondary_files, OUTPUT_FILENAME)
+        list_files(ROOT_PATH, result.primary_files, result.secondary_files, OUTPUT_FILENAME)
     except Exception as exc:
         return jsonify({"status": "error", "error": str(exc)}), 500
 

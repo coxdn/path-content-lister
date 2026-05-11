@@ -38,24 +38,10 @@ class ParseSelectionResult:
     primary_files: List[str]
     secondary_files: List[str]
     missing_paths: List[str]
-    normalized_input: str
 
 
 def normalize_path(path: str) -> str:
     return os.path.normpath(path)
-
-
-def to_posix(path: str) -> str:
-    return normalize_path(path).replace("\\", "/")
-
-
-def is_path_matched_by_any_glob(path: str, patterns: List[str]) -> bool:
-    normalized_path = to_posix(path)
-    for pattern in patterns:
-        normalized_pattern = pattern.replace("\\", "/")
-        if fnmatch.fnmatch(normalized_path, normalized_pattern):
-            return True
-    return False
 
 
 def is_excluded(name: str, patterns) -> bool:
@@ -113,15 +99,68 @@ def resolve_file_token(
     return None
 
 
+def resolve_existing_file_token(token: str, root_path: str) -> str | None:
+    normalized_root = normalize_path(os.path.abspath(root_path))
+    if os.path.isabs(token):
+        abs_token = normalize_path(os.path.abspath(token))
+    else:
+        abs_token = normalize_path(os.path.abspath(os.path.join(normalized_root, token)))
+
+    try:
+        common_path = os.path.commonpath([normalized_root, abs_token])
+    except ValueError:
+        return None
+
+    if common_path != normalized_root:
+        return None
+
+    if not os.path.isfile(abs_token):
+        return None
+
+    return os.path.relpath(abs_token, start=normalized_root)
+
+
+def split_selection_input(input_text: str) -> List[str]:
+    tokens: List[str] = []
+    current: List[str] = []
+    quote_char: str | None = None
+
+    for char in input_text:
+        if quote_char is not None:
+            if char == quote_char:
+                quote_char = None
+                continue
+            current.append(char)
+            continue
+
+        if char in {'"', "'"}:
+            quote_char = char
+            continue
+
+        if char.isspace():
+            if current:
+                tokens.append("".join(current))
+                current = []
+            continue
+
+        current.append(char)
+
+    if current:
+        tokens.append("".join(current))
+
+    return tokens
+
+
 def parse_selection_input(
     input_text: str,
     all_files: List[str],
     norm_to_original: Dict[str, str],
     abs_to_rel: Dict[str, str],
+    root_path: str | None = None,
 ) -> ParseSelectionResult:
     text = input_text.strip()
     if not text:
-        return ParseSelectionResult([], [], [], "")
+        return ParseSelectionResult([], [], [])
 
     selection_modes: Dict[str, int] = {}
     file_order: List[str] = []
@@ -132,12 +171,7 @@ def parse_selection_input(
             file_order.append(file_path)
         selection_modes[file_path] = mode
 
-    def remove_by_pattern(pattern: str):
-        for path in list(file_order):
-            if is_path_matched_by_any_glob(path, [pattern]):
-                selection_modes.pop(path, None)
-
-    input_parts = text.split()
+    input_parts = split_selection_input(input_text)
     for raw_part in input_parts:
         mode = 1
         part = raw_part
@@ -145,10 +179,6 @@ def parse_selection_input(
         if raw_part.startswith("2#") and len(raw_part) > 2:
             mode = 2
             part = raw_part[2:]
-
-        if part.startswith("-") and len(part) > 1:
-            remove_by_pattern(part[1:])
-            continue
 
         if "-" in part:
             start_str, end_str = part.split("-", 1)
@@ -171,6 +201,8 @@ def parse_selection_input(
             continue
 
         resolved_file = resolve_file_token(part, norm_to_original, abs_to_rel)
+        if resolved_file is None and root_path is not None:
+            resolved_file = resolve_existing_file_token(part, root_path)
         if resolved_file is None:
             missing_paths.append(part)
             continue
@@ -186,13 +218,10 @@ def parse_selection_input(
         elif mode == 2:
             ordered_secondary.append(path)
 
-    normalized_tokens = ordered_primary + [f"2#{path}" for path in ordered_secondary]
-
     return ParseSelectionResult(
         primary_files=ordered_primary,
         secondary_files=ordered_secondary,
         missing_paths=missing_paths,
-        normalized_input=" ".join(normalized_tokens),
     )
 
 
