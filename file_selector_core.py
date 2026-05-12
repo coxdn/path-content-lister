@@ -230,24 +230,37 @@ def list_files(
     primary_files: List[str],
     secondary_files: List[str],
     output_filename: str,
-) -> None:
+) -> List[str]:
+    skipped_paths: List[str] = []
+
     with open(output_filename, "w", encoding="utf-8") as out_file:
         for file_path in primary_files:
             full_path = os.path.join(root_path, file_path)
-            out_file.write(f"file listing {file_path}:\n")
+            if not os.path.isfile(full_path):
+                skipped_paths.append(file_path)
+                continue
+
             try:
                 with open(full_path, "r", encoding="utf-8", errors="replace") as source_file:
                     content = source_file.read()
-                out_file.write(content + "\n-------------\n")
-            except Exception as exc:
-                out_file.write(
-                    f"Error reading file {file_path}: {str(exc)}\n-------------\n"
-                )
+            except Exception:
+                skipped_paths.append(file_path)
+                continue
+
+            out_file.write(f"file listing {file_path}:\n")
+            out_file.write(content + "\n-------------\n")
 
         for file_path in secondary_files:
+            full_path = os.path.join(root_path, file_path)
+            if not os.path.isfile(full_path):
+                skipped_paths.append(file_path)
+                continue
+
             out_file.write(f"file listing {file_path}:\n")
             out_file.write(
                 "#exists #content-on-demand File exists in the project; "
                 "request file contents if needed for context understanding.\n"
                 "-------------\n"
             )
+
+    return skipped_paths

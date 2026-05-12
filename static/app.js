@@ -508,7 +508,15 @@ document.addEventListener("DOMContentLoaded", function () {
                     return;
                 }
                 if (responseData.status === "ok") {
-                    clearError();
+                    var missingPaths = Array.isArray(responseData.missing_paths) ? responseData.missing_paths : [];
+                    var skippedPaths = Array.isArray(responseData.skipped_paths) ? responseData.skipped_paths : [];
+                    var ignoredPaths = missingPaths.concat(skippedPaths);
+
+                    if (ignoredPaths.length > 0) {
+                        showError("Skipped missing paths: " + ignoredPaths.join(" "));
+                    } else {
+                        clearError();
+                    }
                 } else {
                     showError(typeof responseData.error === "string" ? responseData.error : "Failed to apply selection");
                 }

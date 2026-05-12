@@ -92,20 +92,23 @@ def apply_selection():
             ROOT_PATH,
         )
 
-        if result.missing_paths:
-            return jsonify(
-                {
-                    "status": "error",
-                    "error": "Missing paths: " + " ".join(result.missing_paths),
-                }
-            ), 400
-
-        list_files(ROOT_PATH, result.primary_files, result.secondary_files, OUTPUT_FILENAME)
+        skipped_paths = list_files(
+            ROOT_PATH,
+            result.primary_files,
+            result.secondary_files,
+            OUTPUT_FILENAME,
+        )
     except Exception as exc:
         return jsonify({"status": "error", "error": str(exc)}), 500
 
     SHOULD_SHUTDOWN.set()
-    return jsonify({"status": "ok"})
+    return jsonify(
+        {
+            "status": "ok",
+            "missing_paths": result.missing_paths,
+            "skipped_paths": skipped_paths,
+        }
+    )
 
 
 @app.after_request
